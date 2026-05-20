@@ -6,7 +6,10 @@ export type PetState =
   | "think"
   | "listen"
   | "happy"
-  | "angry";
+  | "angry"
+  | "sleep"
+  | "surprised"
+  | "loading";
 
 export interface AppSettings {
   baseUrl: string;

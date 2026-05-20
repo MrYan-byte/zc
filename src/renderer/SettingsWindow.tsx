@@ -99,9 +99,7 @@ export function SettingsWindow() {
           <span>System Prompt / 人设</span>
           <textarea
             value={settings.systemPrompt}
-            onChange={(event) =>
-              patchSettings({ systemPrompt: event.target.value })
-            }
+            onChange={(event) => patchSettings({ systemPrompt: event.target.value })}
             rows={6}
           />
         </label>

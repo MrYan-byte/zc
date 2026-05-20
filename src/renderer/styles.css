@@ -41,14 +41,25 @@ button {
   background: transparent;
 }
 
+.pet-scene {
+  position: relative;
+  width: 252px;
+  height: 344px;
+  display: grid;
+  place-items: center;
+}
+
 .pet-stage {
-  width: 278px;
-  height: 364px;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   background: transparent;
   padding: 0;
   display: grid;
   place-items: center;
-  -webkit-app-region: drag;
+  -webkit-app-region: no-drag;
+  z-index: 1;
 }
 
 .pet-stage:focus-visible,
@@ -168,8 +179,7 @@ button {
 
 .panel-shell {
   min-height: 100vh;
-  background:
-    linear-gradient(180deg, rgba(2, 6, 23, 0.98), rgba(15, 23, 42, 0.98));
+  background: linear-gradient(180deg, rgba(2, 6, 23, 0.98), rgba(15, 23, 42, 0.98));
   padding: 18px;
   display: flex;
   flex-direction: column;
@@ -329,6 +339,7 @@ button {
   height: 326px;
   display: grid;
   place-items: center;
+  transition: transform 420ms ease, filter 420ms ease;
 }
 
 .state-pet-shadow {
@@ -353,6 +364,7 @@ button {
   image-rendering: auto;
   transform: translateY(-8px);
   filter: drop-shadow(0 16px 22px rgba(15, 23, 42, 0.3));
+  transition: transform 360ms ease, filter 360ms ease, opacity 260ms ease;
 }
 
 .state-pet-image {
@@ -363,8 +375,23 @@ button {
   pointer-events: none;
 }
 
+.state-pet-eye-mask {
+  position: absolute;
+  top: 70px;
+  left: 88px;
+  width: 62px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(28, 35, 52, 0.82);
+  transform: scaleY(0);
+  transform-origin: center;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .state-pet .state-pet-viewport {
   animation: stateIdleFloat 4.6s ease-in-out infinite;
+  transform: translate(var(--look-x), var(--look-y)) translateY(-8px);
 }
 
 .state-pet.state-listen .state-pet-viewport {
@@ -387,8 +414,43 @@ button {
   animation: stateAngry 2.2s ease-in-out infinite;
 }
 
+.state-pet.state-sleep .state-pet-viewport {
+  animation: stateSleep 5.4s ease-in-out infinite;
+}
+
+.state-pet.state-surprised .state-pet-viewport {
+  animation: stateSurprised 0.9s ease-out 1;
+}
+
+.state-pet.state-loading .state-pet-viewport {
+  animation: stateLoading 2.6s ease-in-out infinite;
+}
+
 .state-pet.is-paused .state-pet-viewport {
   animation-play-state: paused;
+}
+
+.state-pet.micro-blink .state-pet-eye-mask,
+.state-pet.micro-think-mini .state-pet-eye-mask,
+.state-pet.state-sleep .state-pet-eye-mask {
+  opacity: 1;
+  transform: scaleY(1);
+}
+
+.state-pet.micro-head-tilt .state-pet-viewport {
+  transform: translate(var(--look-x), var(--look-y)) translateY(-8px) rotate(-5deg);
+}
+
+.state-pet.micro-eye-move .state-pet-viewport {
+  transform: translate(calc(var(--look-x) + 4px), calc(var(--look-y) - 2px)) translateY(-8px);
+}
+
+.state-pet.micro-hair-touch .state-pet-viewport {
+  transform: translate(var(--look-x), var(--look-y)) translateY(-8px) rotate(1.4deg) scale(1.01);
+}
+
+.state-pet.micro-message-pop .state-pet-viewport {
+  animation: stateMessagePop 0.75s ease-out 1;
 }
 
 @keyframes stateIdleFloat {
@@ -448,6 +510,50 @@ button {
   }
   50% {
     transform: translateY(-2px);
+  }
+}
+
+@keyframes stateSleep {
+  0%,
+  100% {
+    transform: translateY(-8px);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+
+@keyframes stateSurprised {
+  0% {
+    transform: translateY(0px) scale(0.985);
+  }
+  50% {
+    transform: translateY(-10px) scale(1.01);
+  }
+  100% {
+    transform: translateY(-8px) scale(1);
+  }
+}
+
+@keyframes stateLoading {
+  0%,
+  100% {
+    transform: translateY(-8px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-4px) rotate(-1.2deg);
+  }
+}
+
+@keyframes stateMessagePop {
+  0% {
+    transform: translateY(-8px) scale(0.98);
+  }
+  45% {
+    transform: translateY(-14px) scale(1.02);
+  }
+  100% {
+    transform: translateY(-8px) scale(1);
   }
 }
 

@@ -80,12 +80,7 @@ export function ChatWindow() {
           <h1>桌宠聊天</h1>
           <p>文字对话</p>
         </div>
-        <button
-          className="icon-button"
-          type="button"
-          title="清空"
-          onClick={clearHistory}
-        >
+        <button className="icon-button" type="button" title="清空" onClick={clearHistory}>
           <Trash2 size={18} />
         </button>
       </header>
@@ -95,10 +90,7 @@ export function ChatWindow() {
           <div className="empty-state">...</div>
         ) : null}
         {messages.map((message) => (
-          <article
-            className={`message message-${message.role}`}
-            key={message.id}
-          >
+          <article className={`message message-${message.role}`} key={message.id}>
             {message.content}
           </article>
         ))}

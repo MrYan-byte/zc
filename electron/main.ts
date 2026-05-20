@@ -1,5 +1,14 @@
 import path from "node:path";
 import { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage } from "electron";
+import { DEFAULT_PET_STATE } from "../src/shared/defaults";
+import type {
+  AppSettings,
+  PetRuntimeState,
+  PetState,
+  RendererWindowKind
+} from "../src/shared/types";
+import { sendChatMessage, testOpenAiConnection } from "./openaiClient";
+import { clearApiKey, hasApiKey, saveApiKey } from "./secrets";
 import {
   getChatHistory,
   getPetWindowPosition,
@@ -8,15 +17,6 @@ import {
   savePetWindowPosition,
   saveSettings
 } from "./store";
-import { clearApiKey, hasApiKey, saveApiKey } from "./secrets";
-import { sendChatMessage, testOpenAiConnection } from "./openaiClient";
-import { DEFAULT_PET_STATE } from "../src/shared/defaults";
-import type {
-  AppSettings,
-  PetRuntimeState,
-  PetState,
-  RendererWindowKind
-} from "../src/shared/types";
 
 const isDev = !app.isPackaged;
 
@@ -234,7 +234,7 @@ function registerIpc() {
   ipcMain.handle("chat:clear", () => saveChatHistory([]));
 
   ipcMain.handle("chat:send", async (_event, payload: { message: string }) => {
-    runtimeState = { ...runtimeState, state: "think" };
+    runtimeState = { ...runtimeState, state: "loading" };
     broadcastRuntimeState();
 
     const result = await sendChatMessage(payload.message, {

@@ -1,11 +1,29 @@
 import { MessageCircle, Send, Settings, X } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import type { PetRuntimeState } from "../shared/types";
+import {
+  FormEvent,
+  MutableRefObject,
+  MouseEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
 import { DEFAULT_PET_STATE } from "../shared/defaults";
+import type { PetRuntimeState, PetState } from "../shared/types";
 import { CodexPet } from "./components/CodexPet";
 import { electronApi } from "./electronApi";
 
+type MicroAction =
+  | ""
+  | "micro-blink"
+  | "micro-head-tilt"
+  | "micro-hair-touch"
+  | "micro-eye-move"
+  | "micro-think-mini"
+  | "micro-message-pop";
+
 const THINKING_TEXT = "让我想一下。";
+const NO_INTERACTION_MS = 60_000;
 
 export function PetWindow() {
   const [runtime, setRuntime] = useState<PetRuntimeState>(DEFAULT_PET_STATE);
@@ -14,8 +32,81 @@ export function PetWindow() {
   const [bubbleText, setBubbleText] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState("");
+  const [lookOffset, setLookOffset] = useState({ x: 0, y: 0 });
+  const [microAction, setMicroAction] = useState<MicroAction>("");
+  const [interactionCount, setInteractionCount] = useState(0);
+  const [clickBurstCount, setClickBurstCount] = useState(0);
+
   const bubbleTimerRef = useRef<number | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const idleTimerRef = useRef<number | null>(null);
+  const clickBurstTimerRef = useRef<number | null>(null);
+  const microLoopTimerRef = useRef<number | null>(null);
+
+  function clearTimer(ref: MutableRefObject<number | null>) {
+    if (ref.current !== null) {
+      window.clearTimeout(ref.current);
+      ref.current = null;
+    }
+  }
+
+  function resetIdleTimer() {
+    clearTimer(idleTimerRef);
+    idleTimerRef.current = window.setTimeout(() => {
+      if (!composerOpen && !isSending) {
+        void electronApi.pet.setState("sleep");
+      }
+    }, NO_INTERACTION_MS);
+  }
+
+  function trackInteraction() {
+    setInteractionCount((count) => count + 1);
+    resetIdleTimer();
+    if (runtime.state === "sleep") {
+      void electronApi.pet.setState("idle");
+    }
+  }
+
+  function clearBubbleDismissTimer() {
+    clearTimer(bubbleTimerRef);
+  }
+
+  function startBubbleDismissTimer() {
+    clearBubbleDismissTimer();
+    bubbleTimerRef.current = window.setTimeout(() => {
+      setBubbleText("");
+      if (!composerOpen && !isSending) {
+        void electronApi.pet.setState("idle");
+      }
+      bubbleTimerRef.current = null;
+    }, 9000);
+  }
+
+  function triggerMicroAction(action: MicroAction, duration = 1200) {
+    setMicroAction(action);
+    window.setTimeout(() => {
+      setMicroAction((current) => (current === action ? "" : current));
+    }, duration);
+  }
+
+  function queueRandomMicroAction() {
+    clearTimer(microLoopTimerRef);
+    const delay = 3000 + Math.random() * 7000;
+    microLoopTimerRef.current = window.setTimeout(() => {
+      if (!composerOpen && !isSending && runtime.state === "idle") {
+        const actionPool: MicroAction[] = [
+          "micro-blink",
+          "micro-eye-move",
+          "micro-head-tilt",
+          "micro-hair-touch",
+          "micro-think-mini"
+        ];
+        const action = actionPool[Math.floor(Math.random() * actionPool.length)];
+        triggerMicroAction(action, action === "micro-blink" ? 260 : 1400);
+      }
+      queueRandomMicroAction();
+    }, delay);
+  }
 
   useEffect(() => {
     electronApi.pet.getState().then(setRuntime);
@@ -23,6 +114,7 @@ export function PetWindow() {
     const offInline = electronApi.app.onInlineChatOpen(() => {
       setComposerOpen(true);
       void electronApi.pet.setState("listen");
+      trackInteraction();
       window.setTimeout(() => inputRef.current?.focus(), 60);
     });
     const offDelta = electronApi.chat.onDelta((delta) => {
@@ -36,7 +128,11 @@ export function PetWindow() {
       setIsSending(false);
       setDraft("");
       setBubbleText(message.content);
-      void electronApi.pet.setState("happy");
+      triggerMicroAction("micro-message-pop", 900);
+      void electronApi.pet.setState("surprised");
+      window.setTimeout(() => {
+        void electronApi.pet.setState(interactionCount >= 5 ? "happy" : "idle");
+      }, 520);
       startBubbleDismissTimer();
     });
     const offError = electronApi.chat.onError((message) => {
@@ -47,6 +143,9 @@ export function PetWindow() {
       startBubbleDismissTimer();
     });
 
+    resetIdleTimer();
+    queueRandomMicroAction();
+
     return () => {
       offRuntime();
       offInline();
@@ -54,41 +153,31 @@ export function PetWindow() {
       offDone();
       offError();
       clearBubbleDismissTimer();
+      clearTimer(idleTimerRef);
+      clearTimer(clickBurstTimerRef);
+      clearTimer(microLoopTimerRef);
     };
-  }, []);
+  }, [composerOpen, interactionCount, isSending, runtime.state]);
 
   useEffect(() => {
-    if (!composerOpen && !isSending && !bubbleText) {
+    if (!composerOpen && !isSending && !bubbleText && runtime.state !== "sleep") {
       void electronApi.pet.setState("idle");
     }
     if (!composerOpen) {
       setDraft("");
       setError("");
     }
-  }, [bubbleText, composerOpen, isSending]);
-
-  function clearBubbleDismissTimer() {
-    if (bubbleTimerRef.current !== null) {
-      window.clearTimeout(bubbleTimerRef.current);
-      bubbleTimerRef.current = null;
-    }
-  }
-
-  function startBubbleDismissTimer() {
-    clearBubbleDismissTimer();
-    bubbleTimerRef.current = window.setTimeout(() => {
-      setBubbleText("");
-      void electronApi.pet.setState("idle");
-      bubbleTimerRef.current = null;
-    }, 9000);
-  }
+  }, [bubbleText, composerOpen, isSending, runtime.state]);
 
   const visibleBubble = useMemo(() => {
     if (bubbleText.trim()) {
       return bubbleText;
     }
-    if (runtime.state === "think") {
+    if (runtime.state === "loading") {
       return THINKING_TEXT;
+    }
+    if (runtime.state === "sleep") {
+      return "还没想好吗？";
     }
     if (runtime.state === "angry" && error) {
       return error;
@@ -103,12 +192,13 @@ export function PetWindow() {
       return;
     }
 
+    trackInteraction();
     setComposerOpen(false);
     setError("");
     setIsSending(true);
     setBubbleText(THINKING_TEXT);
     clearBubbleDismissTimer();
-    await electronApi.pet.setState("think");
+    await electronApi.pet.setState("loading");
 
     const result = await electronApi.chat.send({ message });
     if (!result.ok) {
@@ -122,6 +212,7 @@ export function PetWindow() {
   }
 
   function toggleComposer() {
+    trackInteraction();
     setComposerOpen((current) => {
       const next = !current;
       void electronApi.pet.setState(next ? "listen" : "idle");
@@ -130,6 +221,48 @@ export function PetWindow() {
       }
       return next;
     });
+  }
+
+  async function handleCharacterClick() {
+    trackInteraction();
+    setClickBurstCount((count) => count + 1);
+    clearTimer(clickBurstTimerRef);
+    clickBurstTimerRef.current = window.setTimeout(() => {
+      setClickBurstCount(0);
+    }, 6000);
+
+    if (clickBurstCount + 1 >= 10) {
+      await electronApi.pet.setState("angry");
+      setBubbleText("玩够了吗？");
+      startBubbleDismissTimer();
+      return;
+    }
+
+    const nextState: PetState = Math.random() < 0.7 ? "happy" : "angry";
+    await electronApi.pet.setState(nextState);
+    triggerMicroAction("micro-head-tilt", 900);
+    window.setTimeout(() => {
+      if (!composerOpen && !isSending) {
+        void electronApi.pet.setState("idle");
+      }
+    }, 1200);
+  }
+
+  function handleSceneMouseMove(event: MouseEvent<HTMLDivElement>) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = ((event.clientX - rect.left) / rect.width - 0.5) * 12;
+    const y = ((event.clientY - rect.top) / rect.height - 0.5) * 10;
+    setLookOffset({ x, y });
+    if (!composerOpen && !isSending && runtime.state === "idle") {
+      void electronApi.pet.setState("listen");
+    }
+  }
+
+  function handleSceneMouseLeave() {
+    setLookOffset({ x: 0, y: 0 });
+    if (!composerOpen && !isSending && !bubbleText) {
+      void electronApi.pet.setState("idle");
+    }
   }
 
   return (
@@ -143,7 +276,15 @@ export function PetWindow() {
             className="pet-composer-input"
             placeholder="输入消息"
             value={draft}
-            onChange={(event) => setDraft(event.target.value)}
+            onFocus={() => {
+              trackInteraction();
+              void electronApi.pet.setState("listen");
+            }}
+            onChange={(event) => {
+              setDraft(event.target.value);
+              trackInteraction();
+              void electronApi.pet.setState("listen");
+            }}
           />
           <button className="pet-mini-button" type="submit" title="发送">
             <Send size={16} />
@@ -165,22 +306,28 @@ export function PetWindow() {
 
       {error && !composerOpen ? <div className="pet-error">{error}</div> : null}
 
-      <button
-        className="pet-stage"
-        type="button"
-        aria-label="切换聊天输入"
-        onClick={toggleComposer}
+      <div
+        className="pet-scene"
+        onMouseLeave={handleSceneMouseLeave}
+        onMouseMove={handleSceneMouseMove}
       >
-        <CodexPet state={runtime.state} paused={runtime.paused} />
-      </button>
+        <button
+          className="pet-stage"
+          type="button"
+          aria-label="角色互动"
+          onClick={handleCharacterClick}
+        >
+          <CodexPet
+            state={runtime.state}
+            paused={runtime.paused}
+            lookOffset={lookOffset}
+            microAction={microAction}
+          />
+        </button>
+      </div>
 
       <div className="pet-actions">
-        <button
-          className="icon-button"
-          type="button"
-          title="聊天"
-          onClick={toggleComposer}
-        >
+        <button className="icon-button" type="button" title="聊天" onClick={toggleComposer}>
           <MessageCircle size={18} />
         </button>
         <button

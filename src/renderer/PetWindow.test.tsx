@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ElectronApi } from "../shared/types";
 import { DEFAULT_PET_STATE } from "../shared/defaults";
+import type { ElectronApi } from "../shared/types";
 import { PetWindow } from "./PetWindow";
 
 describe("PetWindow", () => {
@@ -35,7 +35,7 @@ describe("PetWindow", () => {
   it("renders the desktop pet and quick actions", () => {
     render(<PetWindow />);
 
-    expect(screen.getByLabelText("切换聊天输入")).toBeInTheDocument();
+    expect(screen.getByLabelText("角色互动")).toBeInTheDocument();
     expect(screen.getByTitle("聊天")).toBeInTheDocument();
     expect(screen.getByTitle("设置")).toBeInTheDocument();
   });
