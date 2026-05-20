@@ -1,0 +1,65 @@
+{
+  "name": "zc-pet",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Windows local AI desktop pet built with Electron, React, and TypeScript.",
+  "main": "dist-electron/electron/main.js",
+  "author": "Codex",
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:electron:watch\" \"npm:dev:electron\"",
+    "dev:renderer": "vite",
+    "dev:electron:watch": "tsc -p tsconfig.electron.json --watch --preserveWatchOutput",
+    "dev:electron": "wait-on tcp:5173 dist-electron/electron/main.js && electron dist-electron/electron/main.js",
+    "build": "npm run build:renderer && npm run build:electron",
+    "build:renderer": "vite build",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "package:win": "npm run build && electron-builder --win nsis"
+  },
+  "dependencies": {
+    "electron-store": "^10.0.1",
+    "keytar": "^7.9.0",
+    "lucide-react": "^0.511.0",
+    "openai": "^6.0.1",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.3.0",
+    "@types/node": "^22.15.30",
+    "@types/react": "^19.1.6",
+    "@types/react-dom": "^19.1.5",
+    "@vitejs/plugin-react": "^4.5.0",
+    "concurrently": "^9.1.2",
+    "electron": "^42.2.0",
+    "electron-builder": "^26.0.12",
+    "jsdom": "^26.1.0",
+    "playwright-core": "^1.60.0",
+    "tsx": "^4.20.1",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "vitest": "^3.2.3",
+    "wait-on": "^8.0.3"
+  },
+  "build": {
+    "appId": "com.codex.zcpet",
+    "productName": "ZC Pet",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        "nsis"
+      ]
+    }
+  }
+}
