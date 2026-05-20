@@ -1,8 +1,9 @@
 import path from "node:path";
-import { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, screen } from "electron";
 import { DEFAULT_PET_STATE } from "../src/shared/defaults";
 import type {
   AppSettings,
+  PetWindowDragPoint,
   PetRuntimeState,
   PetState,
   RendererWindowKind
@@ -24,6 +25,17 @@ let petWindow: BrowserWindow | null = null;
 let settingsWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let runtimeState: PetRuntimeState = { ...DEFAULT_PET_STATE };
+let petWindowDragOrigin:
+  | {
+      screenX: number;
+      screenY: number;
+      windowX: number;
+      windowY: number;
+    }
+  | null = null;
+
+const PET_WINDOW_WIDTH = 320;
+const PET_WINDOW_HEIGHT = 520;
 
 function getRendererUrl(kind: RendererWindowKind): string {
   const route = `#/${kind}`;
@@ -34,11 +46,41 @@ function getRendererUrl(kind: RendererWindowKind): string {
   return `file://${path.join(__dirname, "../dist/index.html")}${route}`;
 }
 
+function clampWindowPosition(position: { x?: number; y?: number }) {
+  const hasSavedPosition =
+    typeof position.x === "number" && Number.isFinite(position.x) &&
+    typeof position.y === "number" && Number.isFinite(position.y);
+
+  if (hasSavedPosition) {
+    const display = screen.getDisplayMatching({
+      x: position.x!,
+      y: position.y!,
+      width: PET_WINDOW_WIDTH,
+      height: PET_WINDOW_HEIGHT
+    });
+    const area = display.workArea;
+    return {
+      x: clamp(position.x!, area.x, area.x + area.width - PET_WINDOW_WIDTH),
+      y: clamp(position.y!, area.y, area.y + area.height - PET_WINDOW_HEIGHT)
+    };
+  }
+
+  const area = screen.getPrimaryDisplay().workArea;
+  return {
+    x: Math.round(area.x + (area.width - PET_WINDOW_WIDTH) / 2),
+    y: Math.round(area.y + Math.max(24, area.height - PET_WINDOW_HEIGHT - 48))
+  };
+}
+
 function createPetWindow() {
-  const position = getPetWindowPosition();
+  const position = clampWindowPosition(getPetWindowPosition());
   petWindow = new BrowserWindow({
-    width: 320,
-    height: 520,
+    width: PET_WINDOW_WIDTH,
+    height: PET_WINDOW_HEIGHT,
+    minWidth: PET_WINDOW_WIDTH,
+    maxWidth: PET_WINDOW_WIDTH,
+    minHeight: PET_WINDOW_HEIGHT,
+    maxHeight: PET_WINDOW_HEIGHT,
     x: position.x,
     y: position.y,
     transparent: true,
@@ -57,12 +99,28 @@ function createPetWindow() {
   });
 
   petWindow.loadURL(getRendererUrl("pet"));
+  savePetWindowPosition(position);
+  petWindow.setResizable(false);
   petWindow.on("moved", () => {
     if (!petWindow) {
       return;
     }
     const bounds = petWindow.getBounds();
     savePetWindowPosition({ x: bounds.x, y: bounds.y });
+  });
+  petWindow.on("resize", () => {
+    if (!petWindow) {
+      return;
+    }
+    const bounds = petWindow.getBounds();
+    if (bounds.width !== PET_WINDOW_WIDTH || bounds.height !== PET_WINDOW_HEIGHT) {
+      petWindow.setBounds({
+        x: bounds.x,
+        y: bounds.y,
+        width: PET_WINDOW_WIDTH,
+        height: PET_WINDOW_HEIGHT
+      });
+    }
   });
   petWindow.webContents.on("context-menu", () => {
     buildPetMenu().popup({ window: petWindow ?? undefined });
@@ -177,6 +235,42 @@ function broadcastRuntimeState() {
   petWindow?.webContents.send("pet:runtimeState", runtimeState);
 }
 
+function beginPetWindowDrag(point: PetWindowDragPoint) {
+  if (!petWindow) {
+    return;
+  }
+
+  const bounds = petWindow.getBounds();
+  petWindowDragOrigin = {
+    screenX: point.screenX,
+    screenY: point.screenY,
+    windowX: bounds.x,
+    windowY: bounds.y
+  };
+}
+
+function updatePetWindowDrag(point: PetWindowDragPoint) {
+  if (!petWindow || !petWindowDragOrigin) {
+    return;
+  }
+
+  const deltaX = Math.round(point.screenX - petWindowDragOrigin.screenX);
+  const deltaY = Math.round(point.screenY - petWindowDragOrigin.screenY);
+  const nextPosition = clampWindowPosition({
+    x: petWindowDragOrigin.windowX + deltaX,
+    y: petWindowDragOrigin.windowY + deltaY
+  });
+  petWindow.setPosition(nextPosition.x, nextPosition.y);
+}
+
+function endPetWindowDrag() {
+  petWindowDragOrigin = null;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
 async function updateLaunchAtStartup(enabled: boolean) {
   app.setLoginItemSettings({
     openAtLogin: enabled
@@ -284,6 +378,18 @@ function registerIpc() {
   ipcMain.handle("app:setLaunchAtStartup", async (_event, enabled: boolean) =>
     updateLaunchAtStartup(enabled)
   );
+
+  ipcMain.handle("app:beginPetDrag", async (_event, point: PetWindowDragPoint) => {
+    beginPetWindowDrag(point);
+  });
+
+  ipcMain.handle("app:dragPetTo", async (_event, point: PetWindowDragPoint) => {
+    updatePetWindowDrag(point);
+  });
+
+  ipcMain.handle("app:endPetDrag", async () => {
+    endPetWindowDrag();
+  });
 }
 
 app.whenReady().then(async () => {

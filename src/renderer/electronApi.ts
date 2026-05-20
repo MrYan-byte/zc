@@ -90,6 +90,15 @@ const mockApi: ElectronApi = {
         hasApiKey: false
       };
     },
+    async beginPetDrag() {
+      return undefined;
+    },
+    async dragPetTo() {
+      return undefined;
+    },
+    async endPetDrag() {
+      return undefined;
+    },
     onInlineChatOpen() {
       return () => undefined;
     }

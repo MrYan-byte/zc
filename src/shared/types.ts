@@ -51,6 +51,11 @@ export interface ApiKeyStatus {
   hasApiKey: boolean;
 }
 
+export interface PetWindowDragPoint {
+  screenX: number;
+  screenY: number;
+}
+
 export type RendererWindowKind = "pet" | "chat" | "settings";
 
 export interface ElectronApi {
@@ -81,6 +86,9 @@ export interface ElectronApi {
     openChat(): Promise<void>;
     openSettings(): Promise<void>;
     setLaunchAtStartup(enabled: boolean): Promise<AppSettings & ApiKeyStatus>;
+    beginPetDrag(point: PetWindowDragPoint): Promise<void>;
+    dragPetTo(point: PetWindowDragPoint): Promise<void>;
+    endPetDrag(): Promise<void>;
     onInlineChatOpen(callback: () => void): () => void;
   };
 }

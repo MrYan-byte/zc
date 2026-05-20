@@ -3,6 +3,7 @@ import {
   FormEvent,
   MutableRefObject,
   MouseEvent,
+  PointerEvent,
   useEffect,
   useMemo,
   useRef,
@@ -24,6 +25,16 @@ type MicroAction =
 
 const THINKING_TEXT = "让我想一下。";
 const NO_INTERACTION_MS = 60_000;
+const DRAG_THRESHOLD_PX = 6;
+
+type DragState = {
+  active: boolean;
+  dragging: boolean;
+  suppressClick: boolean;
+  pointerId: number | null;
+  startScreenX: number;
+  startScreenY: number;
+};
 
 export function PetWindow() {
   const [runtime, setRuntime] = useState<PetRuntimeState>(DEFAULT_PET_STATE);
@@ -32,6 +43,7 @@ export function PetWindow() {
   const [bubbleText, setBubbleText] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState("");
+  const [isPetHovered, setIsPetHovered] = useState(false);
   const [lookOffset, setLookOffset] = useState({ x: 0, y: 0 });
   const [microAction, setMicroAction] = useState<MicroAction>("");
   const [interactionCount, setInteractionCount] = useState(0);
@@ -42,6 +54,14 @@ export function PetWindow() {
   const idleTimerRef = useRef<number | null>(null);
   const clickBurstTimerRef = useRef<number | null>(null);
   const microLoopTimerRef = useRef<number | null>(null);
+  const dragStateRef = useRef<DragState>({
+    active: false,
+    dragging: false,
+    suppressClick: false,
+    pointerId: null,
+    startScreenX: 0,
+    startScreenY: 0
+  });
 
   function clearTimer(ref: MutableRefObject<number | null>) {
     if (ref.current !== null) {
@@ -156,6 +176,7 @@ export function PetWindow() {
       clearTimer(idleTimerRef);
       clearTimer(clickBurstTimerRef);
       clearTimer(microLoopTimerRef);
+      void electronApi.app.endPetDrag();
     };
   }, [composerOpen, interactionCount, isSending, runtime.state]);
 
@@ -184,6 +205,19 @@ export function PetWindow() {
     }
     return "";
   }, [bubbleText, error, runtime.state]);
+
+  const renderedState = useMemo<PetState>(() => {
+    if (
+      isPetHovered &&
+      !composerOpen &&
+      !isSending &&
+      (runtime.state === "idle" || runtime.state === "listen" || runtime.state === "sleep")
+    ) {
+      return "listen";
+    }
+
+    return runtime.state;
+  }, [composerOpen, isPetHovered, isSending, runtime.state]);
 
   async function submitChat(event: FormEvent) {
     event.preventDefault();
@@ -253,16 +287,102 @@ export function PetWindow() {
     const x = ((event.clientX - rect.left) / rect.width - 0.5) * 12;
     const y = ((event.clientY - rect.top) / rect.height - 0.5) * 10;
     setLookOffset({ x, y });
-    if (!composerOpen && !isSending && runtime.state === "idle") {
-      void electronApi.pet.setState("listen");
-    }
   }
 
   function handleSceneMouseLeave() {
     setLookOffset({ x: 0, y: 0 });
-    if (!composerOpen && !isSending && !bubbleText) {
+  }
+
+  function handlePetPointerEnter() {
+    setIsPetHovered(true);
+    if (runtime.state === "sleep") {
       void electronApi.pet.setState("idle");
     }
+  }
+
+  function handlePetPointerLeave() {
+    setIsPetHovered(false);
+    setLookOffset({ x: 0, y: 0 });
+  }
+
+  function handlePetPointerDown(event: PointerEvent<HTMLButtonElement>) {
+    dragStateRef.current = {
+      active: true,
+      dragging: false,
+      suppressClick: false,
+      pointerId: event.pointerId,
+      startScreenX: event.screenX,
+      startScreenY: event.screenY
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function handlePetPointerMove(event: PointerEvent<HTMLButtonElement>) {
+    const dragState = dragStateRef.current;
+    if (!dragState.active || dragState.pointerId !== event.pointerId) {
+      return;
+    }
+
+    const deltaX = event.screenX - dragState.startScreenX;
+    const deltaY = event.screenY - dragState.startScreenY;
+    const movedEnough =
+      Math.abs(deltaX) >= DRAG_THRESHOLD_PX || Math.abs(deltaY) >= DRAG_THRESHOLD_PX;
+
+    if (!dragState.dragging && movedEnough) {
+      dragState.dragging = true;
+      dragState.suppressClick = true;
+      void electronApi.app.beginPetDrag({
+        screenX: dragState.startScreenX,
+        screenY: dragState.startScreenY
+      });
+    }
+
+    if (dragState.dragging) {
+      void electronApi.app.dragPetTo({
+        screenX: event.screenX,
+        screenY: event.screenY
+      });
+    }
+  }
+
+  function finishPetDrag(pointerId: number) {
+    const dragState = dragStateRef.current;
+    if (dragState.pointerId !== pointerId) {
+      return;
+    }
+
+    if (dragState.dragging) {
+      void electronApi.app.endPetDrag();
+    }
+
+    dragStateRef.current = {
+      active: false,
+      dragging: false,
+      suppressClick: dragState.suppressClick,
+      pointerId: null,
+      startScreenX: 0,
+      startScreenY: 0
+    };
+  }
+
+  function handlePetPointerUp(event: PointerEvent<HTMLButtonElement>) {
+    finishPetDrag(event.pointerId);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  function handlePetPointerCancel(event: PointerEvent<HTMLButtonElement>) {
+    finishPetDrag(event.pointerId);
+  }
+
+  function handlePetStageClick() {
+    if (dragStateRef.current.suppressClick) {
+      dragStateRef.current.suppressClick = false;
+      return;
+    }
+
+    void handleCharacterClick();
   }
 
   return (
@@ -315,10 +435,16 @@ export function PetWindow() {
           className="pet-stage"
           type="button"
           aria-label="角色互动"
-          onClick={handleCharacterClick}
+          onClick={handlePetStageClick}
+          onPointerEnter={handlePetPointerEnter}
+          onPointerLeave={handlePetPointerLeave}
+          onPointerDown={handlePetPointerDown}
+          onPointerMove={handlePetPointerMove}
+          onPointerUp={handlePetPointerUp}
+          onPointerCancel={handlePetPointerCancel}
         >
           <CodexPet
-            state={runtime.state}
+            state={renderedState}
             paused={runtime.paused}
             lookOffset={lookOffset}
             microAction={microAction}

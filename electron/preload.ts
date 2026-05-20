@@ -6,6 +6,7 @@ import type {
   ChatSendResult,
   ConnectionTestResult,
   ElectronApi,
+  PetWindowDragPoint,
   PetRuntimeState,
   PetState
 } from "../src/shared/types";
@@ -57,6 +58,11 @@ const api: ElectronApi = {
       ipcRenderer.invoke("app:setLaunchAtStartup", enabled) as Promise<
         AppSettings & { hasApiKey: boolean }
       >,
+    beginPetDrag: (point: PetWindowDragPoint) =>
+      ipcRenderer.invoke("app:beginPetDrag", point) as Promise<void>,
+    dragPetTo: (point: PetWindowDragPoint) =>
+      ipcRenderer.invoke("app:dragPetTo", point) as Promise<void>,
+    endPetDrag: () => ipcRenderer.invoke("app:endPetDrag") as Promise<void>,
     onInlineChatOpen: (callback) =>
       onMessage<void>("app:inlineChatOpen", callback)
   }
