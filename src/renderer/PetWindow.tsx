@@ -1,8 +1,8 @@
-import { MessageCircle, Send, Settings, X } from "lucide-react";
+import { MessageCircle, RefreshCcw, Send, Settings, X } from "lucide-react";
 import {
   FormEvent,
-  MutableRefObject,
   MouseEvent,
+  MutableRefObject,
   PointerEvent,
   useEffect,
   useMemo,
@@ -16,16 +16,27 @@ import { electronApi } from "./electronApi";
 
 type MicroAction =
   | ""
-  | "micro-blink"
   | "micro-head-tilt"
   | "micro-hair-touch"
   | "micro-eye-move"
-  | "micro-think-mini"
   | "micro-message-pop";
 
 const THINKING_TEXT = "让我想一下。";
 const NO_INTERACTION_MS = 60_000;
 const DRAG_THRESHOLD_PX = 6;
+const WAVE_DURATION_MS = 1400;
+const STATE_DEBUG_SEQUENCE: PetState[] = [
+  "idle",
+  "listen",
+  "talk",
+  "think",
+  "happy",
+  "angry",
+  "sleep",
+  "surprised",
+  "loading",
+  "wave"
+];
 
 type DragState = {
   active: boolean;
@@ -48,12 +59,16 @@ export function PetWindow() {
   const [microAction, setMicroAction] = useState<MicroAction>("");
   const [interactionCount, setInteractionCount] = useState(0);
   const [clickBurstCount, setClickBurstCount] = useState(0);
+  const [debugPanelOpen, setDebugPanelOpen] = useState(false);
+  const [debugPreviewActive, setDebugPreviewActive] = useState(false);
 
   const bubbleTimerRef = useRef<number | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const idleTimerRef = useRef<number | null>(null);
   const clickBurstTimerRef = useRef<number | null>(null);
   const microLoopTimerRef = useRef<number | null>(null);
+  const microActionTimerRef = useRef<number | null>(null);
+  const waveReturnTimerRef = useRef<number | null>(null);
   const dragStateRef = useRef<DragState>({
     active: false,
     dragging: false,
@@ -103,9 +118,11 @@ export function PetWindow() {
   }
 
   function triggerMicroAction(action: MicroAction, duration = 1200) {
+    clearTimer(microActionTimerRef);
     setMicroAction(action);
-    window.setTimeout(() => {
+    microActionTimerRef.current = window.setTimeout(() => {
       setMicroAction((current) => (current === action ? "" : current));
+      microActionTimerRef.current = null;
     }, duration);
   }
 
@@ -115,14 +132,12 @@ export function PetWindow() {
     microLoopTimerRef.current = window.setTimeout(() => {
       if (!composerOpen && !isSending && runtime.state === "idle") {
         const actionPool: MicroAction[] = [
-          "micro-blink",
           "micro-eye-move",
           "micro-head-tilt",
-          "micro-hair-touch",
-          "micro-think-mini"
+          "micro-hair-touch"
         ];
         const action = actionPool[Math.floor(Math.random() * actionPool.length)];
-        triggerMicroAction(action, action === "micro-blink" ? 260 : 1400);
+        triggerMicroAction(action, 1400);
       }
       queueRandomMicroAction();
     }, delay);
@@ -176,19 +191,28 @@ export function PetWindow() {
       clearTimer(idleTimerRef);
       clearTimer(clickBurstTimerRef);
       clearTimer(microLoopTimerRef);
+      clearTimer(microActionTimerRef);
+      clearTimer(waveReturnTimerRef);
       void electronApi.app.endPetDrag();
     };
   }, [composerOpen, interactionCount, isSending, runtime.state]);
 
   useEffect(() => {
-    if (!composerOpen && !isSending && !bubbleText && runtime.state !== "sleep") {
+    if (
+      !composerOpen &&
+      !isSending &&
+      !bubbleText &&
+      !debugPreviewActive &&
+      runtime.state !== "sleep" &&
+      runtime.state !== "wave"
+    ) {
       void electronApi.pet.setState("idle");
     }
     if (!composerOpen) {
       setDraft("");
       setError("");
     }
-  }, [bubbleText, composerOpen, isSending, runtime.state]);
+  }, [bubbleText, composerOpen, debugPreviewActive, isSending, runtime.state]);
 
   const visibleBubble = useMemo(() => {
     if (bubbleText.trim()) {
@@ -227,6 +251,7 @@ export function PetWindow() {
     }
 
     trackInteraction();
+    setDebugPreviewActive(false);
     setComposerOpen(false);
     setError("");
     setIsSending(true);
@@ -247,6 +272,7 @@ export function PetWindow() {
 
   function toggleComposer() {
     trackInteraction();
+    setDebugPreviewActive(false);
     setComposerOpen((current) => {
       const next = !current;
       void electronApi.pet.setState(next ? "listen" : "idle");
@@ -257,8 +283,22 @@ export function PetWindow() {
     });
   }
 
+  function selectDebugState(state: PetState) {
+    trackInteraction();
+    clearBubbleDismissTimer();
+    clearTimer(waveReturnTimerRef);
+    setBubbleText("");
+    setError("");
+    setComposerOpen(false);
+    setDraft("");
+    setIsSending(false);
+    setDebugPreviewActive(true);
+    void electronApi.pet.setState(state);
+  }
+
   async function handleCharacterClick() {
     trackInteraction();
+    setDebugPreviewActive(false);
     setClickBurstCount((count) => count + 1);
     clearTimer(clickBurstTimerRef);
     clickBurstTimerRef.current = window.setTimeout(() => {
@@ -272,14 +312,15 @@ export function PetWindow() {
       return;
     }
 
-    const nextState: PetState = Math.random() < 0.7 ? "happy" : "angry";
-    await electronApi.pet.setState(nextState);
+    await electronApi.pet.setState("wave");
     triggerMicroAction("micro-head-tilt", 900);
-    window.setTimeout(() => {
+    clearTimer(waveReturnTimerRef);
+    waveReturnTimerRef.current = window.setTimeout(() => {
       if (!composerOpen && !isSending) {
         void electronApi.pet.setState("idle");
       }
-    }, 1200);
+      waveReturnTimerRef.current = null;
+    }, WAVE_DURATION_MS);
   }
 
   function handleSceneMouseMove(event: MouseEvent<HTMLDivElement>) {
@@ -452,7 +493,35 @@ export function PetWindow() {
         </button>
       </div>
 
+      {import.meta.env.DEV && debugPanelOpen ? (
+        <div className="pet-state-panel" aria-label="Action states">
+          {STATE_DEBUG_SEQUENCE.map((state) => (
+            <button
+              className={`pet-state-chip ${
+                runtime.state === state && debugPreviewActive ? "is-active" : ""
+              }`}
+              key={state}
+              type="button"
+              onClick={() => selectDebugState(state)}
+            >
+              {state}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
       <div className="pet-actions">
+        {import.meta.env.DEV ? (
+          <button
+            className="icon-button"
+            type="button"
+            title="切换动作"
+            aria-label="Action panel"
+            onClick={() => setDebugPanelOpen((current) => !current)}
+          >
+            <RefreshCcw size={18} />
+          </button>
+        ) : null}
         <button className="icon-button" type="button" title="聊天" onClick={toggleComposer}>
           <MessageCircle size={18} />
         </button>

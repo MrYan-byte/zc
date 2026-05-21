@@ -34,8 +34,8 @@ let petWindowDragOrigin:
     }
   | null = null;
 
-const PET_WINDOW_WIDTH = 320;
-const PET_WINDOW_HEIGHT = 520;
+const PET_WINDOW_WIDTH = 390;
+const PET_WINDOW_HEIGHT = 640;
 
 function getRendererUrl(kind: RendererWindowKind): string {
   const route = `#/${kind}`;
@@ -84,13 +84,15 @@ function createPetWindow() {
     x: position.x,
     y: position.y,
     transparent: true,
+    backgroundColor: "#00000000",
     frame: false,
     resizable: false,
     maximizable: false,
     fullscreenable: false,
     alwaysOnTop: true,
     skipTaskbar: true,
-    hasShadow: false,
+    hasShadow: true,
+    show: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -99,6 +101,10 @@ function createPetWindow() {
   });
 
   petWindow.loadURL(getRendererUrl("pet"));
+  petWindow.once("ready-to-show", () => {
+    petWindow?.show();
+    petWindow?.moveTop();
+  });
   savePetWindowPosition(position);
   petWindow.setResizable(false);
   petWindow.on("moved", () => {
